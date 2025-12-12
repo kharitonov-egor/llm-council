@@ -1,13 +1,42 @@
 """OpenRouter API client for making LLM requests."""
 
 import httpx
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+
+# Type for message content - can be string or multimodal array
+MessageContent = Union[str, List[Dict[str, Any]]]
+
+
+def build_multimodal_content(text: str, images: Optional[List[str]] = None) -> MessageContent:
+    """
+    Build multimodal message content with text and optional images.
+    
+    Args:
+        text: The text content of the message
+        images: Optional list of base64 data URLs (e.g., "data:image/png;base64,...")
+    
+    Returns:
+        Either a plain string (if no images) or a multimodal content array
+    """
+    if not images:
+        return text
+    
+    # Build multimodal content array
+    content: List[Dict[str, Any]] = [{"type": "text", "text": text}]
+    
+    for image_url in images:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": image_url}
+        })
+    
+    return content
 
 
 async def query_model(
     model: str,
-    messages: List[Dict[str, str]],
+    messages: List[Dict[str, Any]],
     timeout: float = 120.0
 ) -> Optional[Dict[str, Any]]:
     """
@@ -15,7 +44,7 @@ async def query_model(
 
     Args:
         model: OpenRouter model identifier (e.g., "openai/gpt-4o")
-        messages: List of message dicts with 'role' and 'content'
+        messages: List of message dicts with 'role' and 'content' (content can be string or multimodal array)
         timeout: Request timeout in seconds
 
     Returns:
@@ -55,14 +84,14 @@ async def query_model(
 
 async def query_models_parallel(
     models: List[str],
-    messages: List[Dict[str, str]]
+    messages: List[Dict[str, Any]]
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
     Query multiple models in parallel.
 
     Args:
         models: List of OpenRouter model identifiers
-        messages: List of message dicts to send to each model
+        messages: List of message dicts to send to each model (content can be string or multimodal array)
 
     Returns:
         Dict mapping model identifier to response dict (or None if failed)

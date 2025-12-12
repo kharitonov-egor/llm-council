@@ -5,13 +5,22 @@ import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import './ChatInterface.css';
 
+// Max file size: 10MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+// Max images per message
+const MAX_IMAGES = 4;
+// Allowed image types
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
 export default function ChatInterface({
   conversation,
   onSendMessage,
   isLoading,
 }) {
   const [input, setInput] = useState('');
+  const [images, setImages] = useState([]);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -21,11 +30,79 @@ export default function ChatInterface({
     scrollToBottom();
   }, [conversation]);
 
+  const processFile = (file) => {
+    return new Promise((resolve, reject) => {
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        reject(new Error(`Invalid file type: ${file.type}. Allowed: PNG, JPEG, GIF, WebP`));
+        return;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        reject(new Error(`File too large: ${(file.size / 1024 / 1024).toFixed(1)}MB. Max: 10MB`));
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const addImages = async (files) => {
+    const newImages = [];
+    for (const file of files) {
+      if (images.length + newImages.length >= MAX_IMAGES) {
+        alert(`Maximum ${MAX_IMAGES} images allowed per message`);
+        break;
+      }
+      try {
+        const dataUrl = await processFile(file);
+        newImages.push(dataUrl);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+    if (newImages.length > 0) {
+      setImages((prev) => [...prev, ...newImages]);
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    if (e.target.files?.length) {
+      addImages(Array.from(e.target.files));
+    }
+    // Reset input so same file can be selected again
+    e.target.value = '';
+  };
+
+  const handlePaste = async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles = [];
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      addImages(imageFiles);
+    }
+  };
+
+  const removeImage = (index) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (input.trim() && !isLoading) {
-      onSendMessage(input);
+    if ((input.trim() || images.length > 0) && !isLoading) {
+      onSendMessage(input, images);
       setInput('');
+      setImages([]);
     }
   };
 
@@ -63,6 +140,18 @@ export default function ChatInterface({
                 <div className="user-message">
                   <div className="message-label">You</div>
                   <div className="message-content">
+                    {msg.images && msg.images.length > 0 && (
+                      <div className="message-images">
+                        {msg.images.map((img, imgIndex) => (
+                          <img
+                            key={imgIndex}
+                            src={img}
+                            alt={`Attached ${imgIndex + 1}`}
+                            className="message-image"
+                          />
+                        ))}
+                      </div>
+                    )}
                     <div className="markdown-content">
                       <ReactMarkdown>{msg.content}</ReactMarkdown>
                     </div>
@@ -122,22 +211,67 @@ export default function ChatInterface({
 
       {conversation.messages.length === 0 && (
         <form className="input-form" onSubmit={handleSubmit}>
-          <textarea
-            className="message-input"
-            placeholder="Ask your question... (Shift+Enter for new line, Enter to send)"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isLoading}
-            rows={3}
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
           />
-          <button
-            type="submit"
-            className="send-button"
-            disabled={!input.trim() || isLoading}
-          >
-            Send
-          </button>
+          
+          <div className="input-wrapper">
+            {/* Image previews */}
+            {images.length > 0 && (
+              <div className="image-previews">
+                {images.map((img, index) => (
+                  <div key={index} className="image-preview">
+                    <img src={img} alt={`Preview ${index + 1}`} />
+                    <button
+                      type="button"
+                      className="remove-image"
+                      onClick={() => removeImage(index)}
+                      title="Remove image"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="input-row">
+              <button
+                type="button"
+                className="upload-button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading || images.length >= MAX_IMAGES}
+                title={images.length >= MAX_IMAGES ? `Max ${MAX_IMAGES} images` : 'Attach images'}
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                  <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                </svg>
+              </button>
+              <textarea
+                className="message-input"
+                placeholder="Ask your question... (Shift+Enter for new line, Enter to send, paste images)"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                disabled={isLoading}
+                rows={3}
+              />
+              <button
+                type="submit"
+                className="send-button"
+                disabled={(!input.trim() && images.length === 0) || isLoading}
+              >
+                Send
+              </button>
+            </div>
+          </div>
         </form>
       )}
     </div>

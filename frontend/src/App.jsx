@@ -57,13 +57,16 @@ function App() {
     setCurrentConversationId(id);
   };
 
-  const handleSendMessage = async (content) => {
+  const handleSendMessage = async (content, images = []) => {
     if (!currentConversationId) return;
 
     setIsLoading(true);
     try {
-      // Optimistically add user message to UI
+      // Optimistically add user message to UI (with images if present)
       const userMessage = { role: 'user', content };
+      if (images.length > 0) {
+        userMessage.images = images;
+      }
       setCurrentConversation((prev) => ({
         ...prev,
         messages: [...prev.messages, userMessage],
@@ -89,8 +92,8 @@ function App() {
         messages: [...prev.messages, assistantMessage],
       }));
 
-      // Send message with streaming
-      await api.sendMessageStream(currentConversationId, content, (eventType, event) => {
+      // Send message with streaming (including images)
+      await api.sendMessageStream(currentConversationId, content, images, (eventType, event) => {
         switch (eventType) {
           case 'stage1_start':
             setCurrentConversation((prev) => {
