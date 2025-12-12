@@ -1,8 +1,27 @@
 """OpenRouter API client for making LLM requests."""
 
 import httpx
+import logging
+import time
 from typing import List, Dict, Any, Optional, Union
 from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL, get_reasoning_config
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+# ANSI color codes for log output
+class Colors:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    # Request/Send colors
+    SEND = "\033[93m"      # Yellow - sending
+    # Response/Receive colors  
+    RECV = "\033[92m"      # Green - receiving
+    # Error colors
+    ERROR = "\033[91m"     # Red - errors
+    # Info colors
+    INFO = "\033[96m"      # Cyan - general info
+    MODEL = "\033[95m"     # Magenta - model names
 
 # Type for message content - can be string or multimodal array
 MessageContent = Union[str, List[Dict[str, Any]]]
@@ -66,6 +85,19 @@ async def query_model(
         param_name = reasoning_config["param_name"]
         param_value = reasoning_config["value"]
         payload[param_name] = param_value
+        logger.info(f"{Colors.INFO}[{model}] Reasoning: {param_name}={param_value}{Colors.RESET}")
+
+    # Log request details
+    msg_preview = str(messages[0].get('content', ''))[:100] if messages else ''
+    has_images = any(
+        isinstance(m.get('content'), list) and 
+        any(c.get('type') == 'image_url' for c in m.get('content', []))
+        for m in messages
+    )
+    logger.info(f"{Colors.SEND}>>> [{model}] SENDING request (images: {has_images}, timeout: {timeout}s){Colors.RESET}")
+    logger.debug(f"[{model}] Message preview: {msg_preview}...")
+
+    start_time = time.time()
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -76,16 +108,31 @@ async def query_model(
             )
             response.raise_for_status()
 
+            elapsed = time.time() - start_time
             data = response.json()
             message = data['choices'][0]['message']
+
+            # Log response details
+            content_length = len(message.get('content', '') or '')
+            has_reasoning = message.get('reasoning_details') is not None
+            logger.info(f"{Colors.RECV}<<< [{model}] RECEIVED in {elapsed:.2f}s (chars: {content_length}, reasoning: {has_reasoning}){Colors.RESET}")
 
             return {
                 'content': message.get('content'),
                 'reasoning_details': message.get('reasoning_details')
             }
 
+    except httpx.TimeoutException:
+        elapsed = time.time() - start_time
+        logger.error(f"{Colors.ERROR}!!! [{model}] TIMEOUT after {elapsed:.2f}s{Colors.RESET}")
+        return None
+    except httpx.HTTPStatusError as e:
+        elapsed = time.time() - start_time
+        logger.error(f"{Colors.ERROR}!!! [{model}] HTTP {e.response.status_code} after {elapsed:.2f}s: {e.response.text[:200]}{Colors.RESET}")
+        return None
     except Exception as e:
-        print(f"Error querying model {model}: {e}")
+        elapsed = time.time() - start_time
+        logger.error(f"{Colors.ERROR}!!! [{model}] ERROR after {elapsed:.2f}s: {type(e).__name__}: {e}{Colors.RESET}")
         return None
 
 
@@ -105,11 +152,20 @@ async def query_models_parallel(
     """
     import asyncio
 
+    logger.info(f"{Colors.INFO}{'='*60}{Colors.RESET}")
+    logger.info(f"{Colors.INFO}Querying {len(models)} models in parallel{Colors.RESET}")
+    start_time = time.time()
+
     # Create tasks for all models
     tasks = [query_model(model, messages) for model in models]
 
     # Wait for all to complete
     responses = await asyncio.gather(*tasks)
+
+    elapsed = time.time() - start_time
+    successful = sum(1 for r in responses if r is not None)
+    logger.info(f"{Colors.INFO}Parallel query complete in {elapsed:.2f}s ({successful}/{len(models)} succeeded){Colors.RESET}")
+    logger.info(f"{Colors.INFO}{'='*60}{Colors.RESET}")
 
     # Map models to their responses
     return {model: response for model, response in zip(models, responses)}

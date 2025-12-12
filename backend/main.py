@@ -1,5 +1,6 @@
 """FastAPI backend for LLM Council."""
 
+import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -11,6 +12,17 @@ import asyncio
 
 from . import storage
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger(__name__)
+
+# Suppress noisy httpx logs (we have our own request/response logging)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 app = FastAPI(title="LLM Council API")
 
@@ -93,6 +105,10 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
+    image_count = len(request.images) if request.images else 0
+    
+    logger.info(f"New message in {conversation_id[:8]}... (images: {image_count}, first: {is_first_message})")
+    logger.info(f"Query: {request.content[:100]}{'...' if len(request.content) > 100 else ''}")
 
     # Add user message (with images if present)
     storage.add_user_message(conversation_id, request.content, request.images)
@@ -101,11 +117,14 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     if is_first_message:
         title = await generate_conversation_title(request.content)
         storage.update_conversation_title(conversation_id, title)
+        logger.info(f"Generated title: {title}")
 
     # Run the 3-stage council process (with images)
+    logger.info("Starting 3-stage council process...")
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
         request.content, request.images if request.images else None
     )
+    logger.info("Council process complete")
 
     # Add assistant message with all stages
     storage.add_assistant_message(
@@ -140,6 +159,10 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
     # Get images (or None if empty)
     images = request.images if request.images else None
+    image_count = len(images) if images else 0
+    
+    logger.info(f"[STREAM] New message in {conversation_id[:8]}... (images: {image_count}, first: {is_first_message})")
+    logger.info(f"[STREAM] Query: {request.content[:100]}{'...' if len(request.content) > 100 else ''}")
 
     async def event_generator():
         try:
@@ -152,25 +175,32 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
 
             # Stage 1: Collect responses (with images)
+            logger.info("[STREAM] Stage 1: Collecting individual responses...")
             yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
             stage1_results = await stage1_collect_responses(request.content, images)
+            logger.info(f"[STREAM] Stage 1 complete: {len(stage1_results)} responses")
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
             # Stage 2: Collect rankings (with images for context)
+            logger.info("[STREAM] Stage 2: Collecting peer rankings...")
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
             stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results, images)
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+            logger.info(f"[STREAM] Stage 2 complete: {len(stage2_results)} rankings")
             yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
 
             # Stage 3: Synthesize final answer (with images for context)
+            logger.info("[STREAM] Stage 3: Synthesizing final response...")
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
             stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results, images)
+            logger.info("[STREAM] Stage 3 complete")
             yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started
             if title_task:
                 title = await title_task
                 storage.update_conversation_title(conversation_id, title)
+                logger.info(f"[STREAM] Generated title: {title}")
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
             # Save complete assistant message
@@ -182,9 +212,11 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             )
 
             # Send completion event
+            logger.info("[STREAM] Council process complete")
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 
         except Exception as e:
+            logger.error(f"[STREAM] Error: {type(e).__name__}: {e}")
             # Send error event
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
