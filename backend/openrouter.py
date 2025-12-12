@@ -2,7 +2,7 @@
 
 import httpx
 from typing import List, Dict, Any, Optional, Union
-from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL, get_reasoning_config
 
 # Type for message content - can be string or multimodal array
 MessageContent = Union[str, List[Dict[str, Any]]]
@@ -59,6 +59,13 @@ async def query_model(
         "model": model,
         "messages": messages,
     }
+
+    # Add reasoning configuration if available for this model
+    reasoning_config = get_reasoning_config(model)
+    if reasoning_config:
+        param_name = reasoning_config["param_name"]
+        param_value = reasoning_config["value"]
+        payload[param_name] = param_value
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
