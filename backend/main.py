@@ -11,7 +11,9 @@ import json
 import asyncio
 
 from . import storage
-from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings
+from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings, parse_ranking_from_text, build_stage2_prompt
+from .openrouter import query_model, build_multimodal_content
+from .config import COUNCIL_MODELS
 
 # Configure logging
 logging.basicConfig(
@@ -174,18 +176,92 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             if is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(request.content))
 
-            # Stage 1: Collect responses (with images)
+            # Stage 1: Collect responses (with images) - stream individual responses
             logger.info("[STREAM] Stage 1: Collecting individual responses...")
-            yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
-            stage1_results = await stage1_collect_responses(request.content, images)
+            
+            # Send start event with list of pending models
+            yield f"data: {json.dumps({'type': 'stage1_start', 'models': COUNCIL_MODELS})}\n\n"
+            
+            # Build multimodal content for the query
+            content = build_multimodal_content(request.content, images)
+            messages = [{"role": "user", "content": content}]
+            
+            # Create tasks for all models
+            async def query_model_with_name(model):
+                """Query a model and return (model, response) tuple."""
+                response = await query_model(model, messages)
+                return (model, response)
+            
+            # Start all queries in parallel
+            tasks = [asyncio.create_task(query_model_with_name(model)) for model in COUNCIL_MODELS]
+            
+            # Collect results as they complete
+            stage1_results = []
+            for coro in asyncio.as_completed(tasks):
+                model, response = await coro
+                if response is not None:
+                    result = {
+                        "model": model,
+                        "response": response.get('content', '')
+                    }
+                    stage1_results.append(result)
+                    logger.info(f"[STREAM] Stage 1: {model} responded")
+                    # Emit individual response event
+                    yield f"data: {json.dumps({'type': 'stage1_response', 'data': result})}\n\n"
+                else:
+                    logger.warning(f"[STREAM] Stage 1: {model} failed")
+                    # Emit failure event so frontend knows this model won't respond
+                    yield f"data: {json.dumps({'type': 'stage1_response', 'data': {'model': model, 'response': None, 'failed': True}})}\n\n"
+            
             logger.info(f"[STREAM] Stage 1 complete: {len(stage1_results)} responses")
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
-            # Stage 2: Collect rankings (with images for context)
+            # Stage 2: Collect rankings (with images for context) - stream individual rankings
             logger.info("[STREAM] Stage 2: Collecting peer rankings...")
-            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results, images)
+            
+            # Build the ranking prompt and get label mapping
+            ranking_prompt, label_to_model = build_stage2_prompt(request.content, stage1_results, images)
+            
+            # Send start event with pending models and label mapping
+            yield f"data: {json.dumps({'type': 'stage2_start', 'models': COUNCIL_MODELS, 'metadata': {'label_to_model': label_to_model}})}\n\n"
+            
+            # Build multimodal content for ranking
+            ranking_content = build_multimodal_content(ranking_prompt, images)
+            ranking_messages = [{"role": "user", "content": ranking_content}]
+            
+            # Create tasks for all models
+            async def query_ranking_with_name(model):
+                """Query a model for ranking and return (model, response) tuple."""
+                response = await query_model(model, ranking_messages)
+                return (model, response)
+            
+            # Start all ranking queries in parallel
+            ranking_tasks = [asyncio.create_task(query_ranking_with_name(model)) for model in COUNCIL_MODELS]
+            
+            # Collect results as they complete
+            stage2_results = []
+            for coro in asyncio.as_completed(ranking_tasks):
+                model, response = await coro
+                if response is not None:
+                    full_text = response.get('content', '')
+                    parsed = parse_ranking_from_text(full_text)
+                    result = {
+                        "model": model,
+                        "ranking": full_text,
+                        "parsed_ranking": parsed
+                    }
+                    stage2_results.append(result)
+                    logger.info(f"[STREAM] Stage 2: {model} ranked")
+                    # Emit individual ranking event
+                    yield f"data: {json.dumps({'type': 'stage2_response', 'data': result})}\n\n"
+                else:
+                    logger.warning(f"[STREAM] Stage 2: {model} failed")
+                    # Emit failure event
+                    yield f"data: {json.dumps({'type': 'stage2_response', 'data': {'model': model, 'ranking': None, 'failed': True}})}\n\n"
+            
+            # Calculate aggregate rankings
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
+            
             logger.info(f"[STREAM] Stage 2 complete: {len(stage2_results)} rankings")
             yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
 

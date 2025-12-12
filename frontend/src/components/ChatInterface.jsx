@@ -165,26 +165,34 @@ export default function ChatInterface({
                   <div className="message-label">LLM Council</div>
 
                   {/* Stage 1 */}
-                  {msg.loading?.stage1 && (
+                  {msg.loading?.stage1 && !msg.stage1?.length && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
                       <span>Running Stage 1: Collecting individual responses...</span>
                     </div>
                   )}
-                  {msg.stage1 && <Stage1 responses={msg.stage1} />}
+                  {(msg.stage1?.length > 0 || msg.stage1PendingModels?.length > 0) && (
+                    <Stage1 
+                      responses={msg.stage1 || []} 
+                      pendingModels={msg.stage1PendingModels || []}
+                      isLoading={msg.loading?.stage1}
+                    />
+                  )}
 
                   {/* Stage 2 */}
-                  {msg.loading?.stage2 && (
+                  {msg.loading?.stage2 && !msg.stage2?.length && (
                     <div className="stage-loading">
                       <div className="spinner"></div>
                       <span>Running Stage 2: Peer rankings...</span>
                     </div>
                   )}
-                  {msg.stage2 && (
+                  {(msg.stage2?.length > 0 || msg.stage2PendingModels?.length > 0) && (
                     <Stage2
-                      rankings={msg.stage2}
+                      rankings={msg.stage2 || []}
                       labelToModel={msg.metadata?.label_to_model}
                       aggregateRankings={msg.metadata?.aggregate_rankings}
+                      pendingModels={msg.stage2PendingModels || []}
+                      isLoading={msg.loading?.stage2}
                     />
                   )}
 

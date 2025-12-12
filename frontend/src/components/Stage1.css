@@ -63,3 +63,42 @@
   color: #333;
   line-height: 1.6;
 }
+
+/* Pending model tabs */
+.tab.pending {
+  background: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.8;
+}
+
+.tab.pending:hover {
+  background: #f5f5f5;
+  color: #999;
+  border-color: #d0d0d0;
+}
+
+.tab-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #d0d0d0;
+  border-top-color: #4a90e2;
+  border-radius: 50%;
+  animation: tab-spin 0.8s linear infinite;
+}
+
+@keyframes tab-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Response count indicator */
+.responses-count {
+  font-weight: 400;
+  color: #888;
+  font-size: 14px;
+}

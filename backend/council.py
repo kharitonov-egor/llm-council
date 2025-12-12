@@ -37,13 +37,13 @@ async def stage1_collect_responses(
     return stage1_results
 
 
-async def stage2_collect_rankings(
+def build_stage2_prompt(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
     images: Optional[List[str]] = None
-) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+) -> Tuple[str, Dict[str, str]]:
     """
-    Stage 2: Each model ranks the anonymized responses.
+    Build the Stage 2 ranking prompt and label mapping.
 
     Args:
         user_query: The original user query
@@ -51,7 +51,7 @@ async def stage2_collect_rankings(
         images: Optional list of base64 image data URLs (for context)
 
     Returns:
-        Tuple of (rankings list, label_to_model mapping)
+        Tuple of (ranking_prompt, label_to_model mapping)
     """
     # Create anonymized labels for responses (Response A, Response B, etc.)
     labels = [chr(65 + i) for i in range(len(stage1_results))]  # A, B, C, ...
@@ -102,6 +102,27 @@ FINAL RANKING:
 3. Response B
 
 Now provide your evaluation and ranking:"""
+
+    return ranking_prompt, label_to_model
+
+
+async def stage2_collect_rankings(
+    user_query: str,
+    stage1_results: List[Dict[str, Any]],
+    images: Optional[List[str]] = None
+) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+    """
+    Stage 2: Each model ranks the anonymized responses.
+
+    Args:
+        user_query: The original user query
+        stage1_results: Results from Stage 1
+        images: Optional list of base64 image data URLs (for context)
+
+    Returns:
+        Tuple of (rankings list, label_to_model mapping)
+    """
+    ranking_prompt, label_to_model = build_stage2_prompt(user_query, stage1_results, images)
 
     content = build_multimodal_content(ranking_prompt, images)
     messages = [{"role": "user", "content": content}]

@@ -100,6 +100,32 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage1 = true;
+              // Initialize stage1 as empty array and track pending models
+              lastMsg.stage1 = [];
+              lastMsg.stage1PendingModels = event.models || [];
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage1_response':
+            // Handle individual model response as it arrives
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              
+              // Remove this model from pending list
+              const modelName = event.data.model;
+              lastMsg.stage1PendingModels = (lastMsg.stage1PendingModels || [])
+                .filter(m => m !== modelName);
+              
+              // Add response if it didn't fail and isn't already present (prevent duplicates)
+              if (!event.data.failed) {
+                const existingModels = (lastMsg.stage1 || []).map(r => r.model);
+                if (!existingModels.includes(modelName)) {
+                  lastMsg.stage1 = [...(lastMsg.stage1 || []), event.data];
+                }
+              }
+              
               return { ...prev, messages };
             });
             break;
@@ -108,8 +134,10 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
+              // Final stage1 data is already built up, but use this as authoritative source
               lastMsg.stage1 = event.data;
               lastMsg.loading.stage1 = false;
+              lastMsg.stage1PendingModels = [];
               return { ...prev, messages };
             });
             break;
@@ -119,6 +147,36 @@ function App() {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
               lastMsg.loading.stage2 = true;
+              // Initialize stage2 as empty array and track pending models
+              lastMsg.stage2 = [];
+              lastMsg.stage2PendingModels = event.models || [];
+              // Store label_to_model early so we can use it as rankings come in
+              if (event.metadata?.label_to_model) {
+                lastMsg.metadata = { ...lastMsg.metadata, label_to_model: event.metadata.label_to_model };
+              }
+              return { ...prev, messages };
+            });
+            break;
+
+          case 'stage2_response':
+            // Handle individual model ranking as it arrives
+            setCurrentConversation((prev) => {
+              const messages = [...prev.messages];
+              const lastMsg = messages[messages.length - 1];
+              
+              // Remove this model from pending list
+              const modelName = event.data.model;
+              lastMsg.stage2PendingModels = (lastMsg.stage2PendingModels || [])
+                .filter(m => m !== modelName);
+              
+              // Add ranking if it didn't fail (prevent duplicates)
+              if (!event.data.failed) {
+                const existingModels = (lastMsg.stage2 || []).map(r => r.model);
+                if (!existingModels.includes(modelName)) {
+                  lastMsg.stage2 = [...(lastMsg.stage2 || []), event.data];
+                }
+              }
+              
               return { ...prev, messages };
             });
             break;
@@ -127,9 +185,11 @@ function App() {
             setCurrentConversation((prev) => {
               const messages = [...prev.messages];
               const lastMsg = messages[messages.length - 1];
+              // Final stage2 data
               lastMsg.stage2 = event.data;
               lastMsg.metadata = event.metadata;
               lastMsg.loading.stage2 = false;
+              lastMsg.stage2PendingModels = [];
               return { ...prev, messages };
             });
             break;
