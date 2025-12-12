@@ -19,6 +19,7 @@ export default function ChatInterface({
 }) {
   const [input, setInput] = useState('');
   const [images, setImages] = useState([]);
+  const [lightboxImage, setLightboxImage] = useState(null);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -148,6 +149,8 @@ export default function ChatInterface({
                             src={img}
                             alt={`Attached ${imgIndex + 1}`}
                             className="message-image"
+                            onClick={() => setLightboxImage(img)}
+                            title="Click to enlarge"
                           />
                         ))}
                       </div>
@@ -273,6 +276,28 @@ export default function ChatInterface({
             </div>
           </div>
         </form>
+      )}
+
+      {/* Lightbox Modal */}
+      {lightboxImage && (
+        <div 
+          className="lightbox-overlay" 
+          onClick={() => setLightboxImage(null)}
+        >
+          <button 
+            className="lightbox-close" 
+            onClick={() => setLightboxImage(null)}
+            title="Close"
+          >
+            ×
+          </button>
+          <img 
+            src={lightboxImage} 
+            alt="Enlarged view" 
+            className="lightbox-image"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
     </div>
   );
