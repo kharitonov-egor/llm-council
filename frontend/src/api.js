@@ -133,4 +133,50 @@ export const api = {
       }
     }
   },
+
+  /**
+   * Get current configuration.
+   */
+  async getConfig() {
+    const response = await fetch(`${API_BASE}/api/config`);
+    if (!response.ok) {
+      throw new Error('Failed to get configuration');
+    }
+    return response.json();
+  },
+
+  /**
+   * Update configuration.
+   * @param {object} config - Configuration object
+   */
+  async updateConfig(config) {
+    const response = await fetch(`${API_BASE}/api/config`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(config),
+    });
+    if (!response.ok) {
+      let errorMessage = 'Failed to update configuration';
+      try {
+        const error = await response.json();
+        // Handle various error formats from FastAPI
+        if (typeof error.detail === 'string') {
+          errorMessage = error.detail;
+        } else if (Array.isArray(error.detail)) {
+          // Validation errors come as array
+          errorMessage = error.detail.map(e => e.msg || e.message || JSON.stringify(e)).join(', ');
+        } else if (error.detail) {
+          errorMessage = JSON.stringify(error.detail);
+        } else if (error.message) {
+          errorMessage = error.message;
+        }
+      } catch (e) {
+        // Failed to parse JSON, use default message
+      }
+      throw new Error(errorMessage);
+    }
+    return response.json();
+  },
 };

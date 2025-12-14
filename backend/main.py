@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import uuid
 import json
 import asyncio
@@ -14,6 +14,7 @@ from . import storage
 from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings, parse_ranking_from_text, build_stage2_prompt
 from .openrouter import query_model, build_multimodal_content
 from .config import COUNCIL_MODELS
+from .config_manager import get_config, update_config
 
 # Configure logging
 logging.basicConfig(
@@ -304,6 +305,47 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             "Connection": "keep-alive",
         }
     )
+
+
+class UpdateConfigRequest(BaseModel):
+    """Request to update configuration."""
+    council_models: Optional[List[str]] = None
+    chairman_model: Optional[str] = None
+    default_reasoning_effort: Optional[str] = None
+    model_reasoning_config: Optional[Dict[str, Any]] = None
+
+
+@app.get("/api/config")
+async def get_configuration():
+    """Get current configuration."""
+    return get_config()
+
+
+@app.put("/api/config")
+async def update_configuration(request: UpdateConfigRequest):
+    """Update configuration."""
+    # Get which fields were explicitly provided in the request
+    provided_fields = request.model_fields_set
+    
+    updates = {}
+    if "council_models" in provided_fields:
+        updates["council_models"] = request.council_models
+    if "chairman_model" in provided_fields:
+        updates["chairman_model"] = request.chairman_model
+    if "default_reasoning_effort" in provided_fields:
+        updates["default_reasoning_effort"] = request.default_reasoning_effort
+    if "model_reasoning_config" in provided_fields:
+        updates["model_reasoning_config"] = request.model_reasoning_config
+    
+    try:
+        updated_config = update_config(updates)
+        logger.info("Configuration saved successfully. Restart server for changes to take full effect.")
+        return updated_config
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to update configuration: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
