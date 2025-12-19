@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './Stage1.css';
 
 export default function Stage1({ responses, pendingModels = [], isLoading = false }) {
@@ -65,7 +66,7 @@ export default function Stage1({ responses, pendingModels = [], isLoading = fals
         <div className="tab-content">
           <div className="model-name">{currentResponse.model}</div>
           <div className="response-text markdown-content">
-            <ReactMarkdown>{currentResponse.response}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentResponse.response}</ReactMarkdown>
           </div>
         </div>
       )}
