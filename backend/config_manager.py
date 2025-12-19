@@ -6,12 +6,16 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 # Default values (matching config.py defaults)
-DEFAULT_COUNCIL_MODELS = [
+DEFAULT_AVAILABLE_MODELS = [
     "openai/gpt-5.2",
-    "google/gemini-3-pro-preview",
     "anthropic/claude-opus-4.5",
-    "deepseek/deepseek-v3.2"
+    "deepseek/deepseek-v3.2",
+    "moonshotai/kimi-k2-thinking",
+    "google/gemini-3-flash-preview",
+    "google/gemini-3-pro-preview",
 ]
+
+DEFAULT_COUNCIL_MODELS = DEFAULT_AVAILABLE_MODELS.copy()
 
 DEFAULT_CHAIRMAN_MODEL = "openai/gpt-5.2"
 DEFAULT_REASONING_EFFORT = "medium"
@@ -46,6 +50,7 @@ def load_config() -> Dict[str, Any]:
                     "chairman_model": config.get("chairman_model", DEFAULT_CHAIRMAN_MODEL),
                     "default_reasoning_effort": config.get("default_reasoning_effort", DEFAULT_REASONING_EFFORT),
                     "model_reasoning_config": config.get("model_reasoning_config", DEFAULT_MODEL_REASONING_CONFIG),
+                    "available_models": config.get("available_models", DEFAULT_AVAILABLE_MODELS),
                 }
         except Exception as e:
             print(f"Warning: Failed to load config from {CONFIG_FILE}: {e}")
@@ -56,6 +61,7 @@ def load_config() -> Dict[str, Any]:
         "chairman_model": DEFAULT_CHAIRMAN_MODEL,
         "default_reasoning_effort": DEFAULT_REASONING_EFFORT,
         "model_reasoning_config": DEFAULT_MODEL_REASONING_CONFIG,
+        "available_models": DEFAULT_AVAILABLE_MODELS,
     }
 
 
@@ -77,6 +83,8 @@ def save_config(config: Dict[str, Any]) -> None:
         raise ValueError("chairman_model must be a string")
     if config.get("chairman_model") not in config.get("council_models", []):
         raise ValueError("chairman_model must be one of the council_models")
+    if "available_models" in config and not isinstance(config.get("available_models"), list):
+        raise ValueError("available_models must be a list")
     
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)

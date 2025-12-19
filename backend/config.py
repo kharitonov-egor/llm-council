@@ -9,6 +9,7 @@ from .config_manager import (
     DEFAULT_CHAIRMAN_MODEL,
     DEFAULT_REASONING_EFFORT,
     DEFAULT_MODEL_REASONING_CONFIG,
+    DEFAULT_AVAILABLE_MODELS,
 )
 
 load_dotenv()
@@ -33,6 +34,7 @@ def get_runtime_config() -> Dict[str, Any]:
             "chairman_model": DEFAULT_CHAIRMAN_MODEL,
             "default_reasoning_effort": DEFAULT_REASONING_EFFORT,
             "model_reasoning_config": DEFAULT_MODEL_REASONING_CONFIG,
+            "available_models": DEFAULT_AVAILABLE_MODELS,
         }
 
 

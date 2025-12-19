@@ -326,6 +326,7 @@ class UpdateConfigRequest(BaseModel):
     chairman_model: Optional[str] = None
     default_reasoning_effort: Optional[str] = None
     model_reasoning_config: Optional[Dict[str, Any]] = None
+    available_models: Optional[List[str]] = None
 
 
 @app.get("/api/config")
@@ -349,6 +350,8 @@ async def update_configuration(request: UpdateConfigRequest):
         updates["default_reasoning_effort"] = request.default_reasoning_effort
     if "model_reasoning_config" in provided_fields:
         updates["model_reasoning_config"] = request.model_reasoning_config
+    if "available_models" in provided_fields:
+        updates["available_models"] = request.available_models
     
     try:
         updated_config = update_config(updates)

@@ -11,6 +11,15 @@ export default function Settings() {
   const [newModel, setNewModel] = useState('');
   const [isOpen, setIsOpen] = useState(true);
 
+  const fallbackCoreModels = [
+    'openai/gpt-5.2',
+    'anthropic/claude-opus-4.5',
+    'deepseek/deepseek-v3.2',
+    'moonshotai/kimi-k2-thinking',
+    'google/gemini-3-flash-preview',
+    'google/gemini-3-pro-preview',
+  ];
+
   useEffect(() => {
     loadConfig();
   }, []);
@@ -76,6 +85,26 @@ export default function Settings() {
     }
   };
 
+  const toggleCoreModel = (model) => {
+    if (!config) return;
+    const isActive = config.council_models.includes(model);
+    if (isActive) {
+      handleRemoveModel(model);
+    } else {
+      setConfig({
+        ...config,
+        council_models: [...config.council_models, model],
+      });
+    }
+  };
+
+  const coreModels = config?.available_models?.length
+    ? config.available_models
+    : fallbackCoreModels;
+  const customModels = config
+    ? config.council_models.filter((model) => !coreModels.includes(model))
+    : [];
+
   return (
     <div className="settings-menu">
       <button
@@ -138,28 +167,57 @@ export default function Settings() {
                 )}
 
                 <div className="settings-section">
-                  <label className="settings-label">Council Models</label>
+                  <label className="settings-label">Core Models</label>
                   <p className="settings-description">
-                    Add or remove models that will participate in the council discussion.
+                    These defaults are always available. Toggle them on or off.
+                  </p>
+                  <div className="settings-models-grid">
+                    {coreModels.map((model) => {
+                      const isActive = config.council_models.includes(model);
+                      return (
+                        <button
+                          key={model}
+                          type="button"
+                          className={`settings-toggle-model ${isActive ? 'is-active' : ''}`}
+                          onClick={() => toggleCoreModel(model)}
+                        >
+                          <span className="settings-toggle-name">{model}</span>
+                          <span className="settings-toggle-state">
+                            {isActive ? 'On' : 'Off'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="settings-section">
+                  <label className="settings-label">Custom Models</label>
+                  <p className="settings-description">
+                    Add any extra models you want to include beyond the defaults.
                   </p>
                   <div className="settings-models-list">
-                    {config.council_models.map((model) => (
-                      <div key={model} className="settings-model-item">
-                        <span className="settings-model-name">{model}</span>
-                        <button
-                          className="settings-remove-btn"
-                          onClick={() => handleRemoveModel(model)}
-                          disabled={config.council_models.length === 1}
-                          title={
-                            config.council_models.length === 1
-                              ? 'At least one model is required'
-                              : 'Remove model'
-                          }
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
+                    {customModels.length === 0 ? (
+                      <div className="settings-empty">No custom models yet.</div>
+                    ) : (
+                      customModels.map((model) => (
+                        <div key={model} className="settings-model-item">
+                          <span className="settings-model-name">{model}</span>
+                          <button
+                            className="settings-remove-btn"
+                            onClick={() => handleRemoveModel(model)}
+                            disabled={config.council_models.length === 1}
+                            title={
+                              config.council_models.length === 1
+                                ? 'At least one model is required'
+                                : 'Remove model'
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    )}
                   </div>
                   <div className="settings-add-model">
                     <input
