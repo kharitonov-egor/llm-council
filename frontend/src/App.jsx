@@ -10,7 +10,6 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
 
   // Load conversations on mount
   useEffect(() => {
@@ -253,16 +252,13 @@ function App() {
         currentConversationId={currentConversationId}
         onSelectConversation={handleSelectConversation}
         onNewConversation={handleNewConversation}
-        onOpenSettings={() => setShowSettings(true)}
       />
       <ChatInterface
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         isLoading={isLoading}
       />
-      {showSettings && (
-        <Settings onClose={() => setShowSettings(false)} />
-      )}
+      <Settings />
     </div>
   );
 }

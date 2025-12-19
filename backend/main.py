@@ -11,9 +11,8 @@ import json
 import asyncio
 
 from . import storage
-from .council import run_full_council, generate_conversation_title, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings, parse_ranking_from_text, build_stage2_prompt
+from .council import run_full_council, generate_conversation_title, stage3_synthesize_final, calculate_aggregate_rankings, parse_ranking_from_text, build_stage2_prompt
 from .openrouter import query_model, build_multimodal_content
-from .config import COUNCIL_MODELS
 from .config_manager import get_config, update_config
 
 # Configure logging
@@ -33,6 +32,7 @@ app = FastAPI(title="LLM Council API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -122,10 +122,12 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         storage.update_conversation_title(conversation_id, title)
         logger.info(f"Generated title: {title}")
 
+    config_snapshot = get_config()
+
     # Run the 3-stage council process (with images)
     logger.info("Starting 3-stage council process...")
     stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-        request.content, request.images if request.images else None
+        request.content, request.images if request.images else None, config=config_snapshot
     )
     logger.info("Council process complete")
 
@@ -167,6 +169,10 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
     logger.info(f"[STREAM] New message in {conversation_id[:8]}... (images: {image_count}, first: {is_first_message})")
     logger.info(f"[STREAM] Query: {request.content[:100]}{'...' if len(request.content) > 100 else ''}")
 
+    config_snapshot = get_config()
+    council_models = config_snapshot["council_models"]
+    chairman_model = config_snapshot["chairman_model"]
+
     async def event_generator():
         try:
             # Add user message (with images if present)
@@ -181,7 +187,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             logger.info("[STREAM] Stage 1: Collecting individual responses...")
             
             # Send start event with list of pending models
-            yield f"data: {json.dumps({'type': 'stage1_start', 'models': COUNCIL_MODELS})}\n\n"
+            yield f"data: {json.dumps({'type': 'stage1_start', 'models': council_models})}\n\n"
             
             # Build multimodal content for the query
             content = build_multimodal_content(request.content, images)
@@ -190,11 +196,11 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Create tasks for all models
             async def query_model_with_name(model):
                 """Query a model and return (model, response) tuple."""
-                response = await query_model(model, messages)
+                response = await query_model(model, messages, config=config_snapshot)
                 return (model, response)
             
             # Start all queries in parallel
-            tasks = [asyncio.create_task(query_model_with_name(model)) for model in COUNCIL_MODELS]
+            tasks = [asyncio.create_task(query_model_with_name(model)) for model in council_models]
             
             # Collect results as they complete
             stage1_results = []
@@ -224,7 +230,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             ranking_prompt, label_to_model = build_stage2_prompt(request.content, stage1_results, images)
             
             # Send start event with pending models and label mapping
-            yield f"data: {json.dumps({'type': 'stage2_start', 'models': COUNCIL_MODELS, 'metadata': {'label_to_model': label_to_model}})}\n\n"
+            yield f"data: {json.dumps({'type': 'stage2_start', 'models': council_models, 'metadata': {'label_to_model': label_to_model}})}\n\n"
             
             # Build multimodal content for ranking
             ranking_content = build_multimodal_content(ranking_prompt, images)
@@ -233,11 +239,11 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Create tasks for all models
             async def query_ranking_with_name(model):
                 """Query a model for ranking and return (model, response) tuple."""
-                response = await query_model(model, ranking_messages)
+                response = await query_model(model, ranking_messages, config=config_snapshot)
                 return (model, response)
             
             # Start all ranking queries in parallel
-            ranking_tasks = [asyncio.create_task(query_ranking_with_name(model)) for model in COUNCIL_MODELS]
+            ranking_tasks = [asyncio.create_task(query_ranking_with_name(model)) for model in council_models]
             
             # Collect results as they complete
             stage2_results = []
@@ -269,7 +275,14 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Stage 3: Synthesize final answer (with images for context)
             logger.info("[STREAM] Stage 3: Synthesizing final response...")
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results, images)
+            stage3_result = await stage3_synthesize_final(
+                request.content,
+                stage1_results,
+                stage2_results,
+                images,
+                chairman_model=chairman_model,
+                config=config_snapshot
+            )
             logger.info("[STREAM] Stage 3 complete")
             yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
@@ -339,7 +352,7 @@ async def update_configuration(request: UpdateConfigRequest):
     
     try:
         updated_config = update_config(updates)
-        logger.info("Configuration saved successfully. Restart server for changes to take full effect.")
+        logger.info("Configuration saved successfully.")
         return updated_config
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

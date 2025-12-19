@@ -56,7 +56,8 @@ def build_multimodal_content(text: str, images: Optional[List[str]] = None) -> M
 async def query_model(
     model: str,
     messages: List[Dict[str, Any]],
-    timeout: float = 120.0
+    timeout: float = 120.0,
+    config: Optional[Dict[str, Any]] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Query a single model via OpenRouter API.
@@ -80,7 +81,7 @@ async def query_model(
     }
 
     # Add reasoning configuration if available for this model
-    reasoning_config = get_reasoning_config(model)
+    reasoning_config = get_reasoning_config(model, config=config)
     if reasoning_config:
         param_name = reasoning_config["param_name"]
         param_value = reasoning_config["value"]
@@ -138,7 +139,8 @@ async def query_model(
 
 async def query_models_parallel(
     models: List[str],
-    messages: List[Dict[str, Any]]
+    messages: List[Dict[str, Any]],
+    config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
     Query multiple models in parallel.
@@ -157,7 +159,7 @@ async def query_models_parallel(
     start_time = time.time()
 
     # Create tasks for all models
-    tasks = [query_model(model, messages) for model in models]
+    tasks = [query_model(model, messages, config=config) for model in models]
 
     # Wait for all to complete
     responses = await asyncio.gather(*tasks)

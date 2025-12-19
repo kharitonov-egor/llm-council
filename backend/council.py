@@ -2,12 +2,14 @@
 
 from typing import List, Dict, Any, Tuple, Optional
 from .openrouter import query_models_parallel, query_model, build_multimodal_content
-from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
+from .config_manager import load_config
 
 
 async def stage1_collect_responses(
     user_query: str,
-    images: Optional[List[str]] = None
+    images: Optional[List[str]] = None,
+    council_models: Optional[List[str]] = None,
+    config: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
     """
     Stage 1: Collect individual responses from all council models.
@@ -22,8 +24,11 @@ async def stage1_collect_responses(
     content = build_multimodal_content(user_query, images)
     messages = [{"role": "user", "content": content}]
 
+    runtime_config = config or load_config()
+    models = council_models or runtime_config["council_models"]
+
     # Query all models in parallel
-    responses = await query_models_parallel(COUNCIL_MODELS, messages)
+    responses = await query_models_parallel(models, messages, config=runtime_config)
 
     # Format results
     stage1_results = []
@@ -109,7 +114,9 @@ Now provide your evaluation and ranking:"""
 async def stage2_collect_rankings(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
-    images: Optional[List[str]] = None
+    images: Optional[List[str]] = None,
+    council_models: Optional[List[str]] = None,
+    config: Optional[Dict[str, Any]] = None
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
     Stage 2: Each model ranks the anonymized responses.
@@ -127,8 +134,11 @@ async def stage2_collect_rankings(
     content = build_multimodal_content(ranking_prompt, images)
     messages = [{"role": "user", "content": content}]
 
+    runtime_config = config or load_config()
+    models = council_models or runtime_config["council_models"]
+
     # Get rankings from all council models in parallel
-    responses = await query_models_parallel(COUNCIL_MODELS, messages)
+    responses = await query_models_parallel(models, messages, config=runtime_config)
 
     # Format results
     stage2_results = []
@@ -149,7 +159,9 @@ async def stage3_synthesize_final(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
     stage2_results: List[Dict[str, Any]],
-    images: Optional[List[str]] = None
+    images: Optional[List[str]] = None,
+    chairman_model: Optional[str] = None,
+    config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -198,18 +210,21 @@ Provide a clear, well-reasoned final answer that represents the council's collec
     content = build_multimodal_content(chairman_prompt, images)
     messages = [{"role": "user", "content": content}]
 
+    runtime_config = config or load_config()
+    chairman = chairman_model or runtime_config["chairman_model"]
+
     # Query the chairman model
-    response = await query_model(CHAIRMAN_MODEL, messages)
+    response = await query_model(chairman, messages, config=runtime_config)
 
     if response is None:
         # Fallback if chairman fails
         return {
-            "model": CHAIRMAN_MODEL,
+            "model": chairman,
             "response": "Error: Unable to generate final synthesis."
         }
 
     return {
-        "model": CHAIRMAN_MODEL,
+        "model": chairman,
         "response": response.get('content', '')
     }
 
@@ -335,7 +350,8 @@ Title:"""
 
 async def run_full_council(
     user_query: str,
-    images: Optional[List[str]] = None
+    images: Optional[List[str]] = None,
+    config: Optional[Dict[str, Any]] = None
 ) -> Tuple[List, List, Dict, Dict]:
     """
     Run the complete 3-stage council process.
@@ -347,8 +363,15 @@ async def run_full_council(
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
     """
+    runtime_config = config or load_config()
+
     # Stage 1: Collect individual responses
-    stage1_results = await stage1_collect_responses(user_query, images)
+    stage1_results = await stage1_collect_responses(
+        user_query,
+        images,
+        council_models=runtime_config["council_models"],
+        config=runtime_config
+    )
 
     # If no models responded successfully, return error
     if not stage1_results:
@@ -359,7 +382,11 @@ async def run_full_council(
 
     # Stage 2: Collect rankings (include images for context)
     stage2_results, label_to_model = await stage2_collect_rankings(
-        user_query, stage1_results, images
+        user_query,
+        stage1_results,
+        images,
+        council_models=runtime_config["council_models"],
+        config=runtime_config
     )
 
     # Calculate aggregate rankings
@@ -370,7 +397,9 @@ async def run_full_council(
         user_query,
         stage1_results,
         stage2_results,
-        images
+        images,
+        chairman_model=runtime_config["chairman_model"],
+        config=runtime_config
     )
 
     # Prepare metadata
